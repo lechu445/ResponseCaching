@@ -1,8 +1,22 @@
-ASP.NET Core Response Caching [Archived]
-========================================
 
-**This GitHub project has been archived.** Ongoing development on this project can be found in <https://github.com/aspnet/AspNetCore>.
+forked from:
 
-This repo hosts the ASP.NET Core middleware for response caching.
+https://github.com/aspnet/ResponseCaching
 
-This project is part of ASP.NET Core. You can find samples, documentation and getting started instructions for ASP.NET Core at the [AspNetCore](https://github.com/aspnet/AspNetCore) repo.
+because of that: 
+
+https://github.com/aspnet/Announcements/issues/354
+
+Decision to make IResponseCachingPolicyProvider interace as internal broke the Open-Close principal of the module and caused my application unable to case certain responses.
+
+# Build
+
+```
+dotnet build
+```
+
+# Test
+
+```
+dotnet test
+```
