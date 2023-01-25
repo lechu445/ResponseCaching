@@ -11,10 +11,7 @@ namespace Anixe.IO.AspNetCore.Builder
     {
         public static IApplicationBuilder UseAnixeResponseCaching(this IApplicationBuilder app)
         {
-            if (app == null)
-            {
-                throw new ArgumentNullException(nameof(app));
-            }
+            ArgumentNullException.ThrowIfNull(app);
 
             return app.UseMiddleware<ResponseCachingMiddleware>();
         }

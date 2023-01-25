@@ -3,6 +3,7 @@
 
 using System;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Headers;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
 
@@ -22,7 +23,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
             }
 
             // Verify existence of authorization headers
-            if (!StringValues.IsNullOrEmpty(request.Headers[HeaderNames.Authorization]))
+            if (!StringValues.IsNullOrEmpty(request.Headers.Authorization))
             {
                 context.Logger.LogRequestWithAuthorizationNotCacheable();
                 return false;
@@ -33,12 +34,13 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public virtual bool AllowCacheLookup(ResponseCachingContext context)
         {
-            var request = context.HttpContext.Request;
+            var requestHeaders = context.HttpContext.Request.Headers;
+            var cacheControl = requestHeaders.CacheControl;
 
             // Verify request cache-control parameters
-            if (!StringValues.IsNullOrEmpty(request.Headers[HeaderNames.CacheControl]))
+            if (!StringValues.IsNullOrEmpty(cacheControl))
             {
-                if (HeaderUtilities.ContainsCacheDirective(request.Headers[HeaderNames.CacheControl], CacheControlHeaderValue.NoCacheString))
+                if (HeaderUtilities.ContainsCacheDirective(cacheControl, CacheControlHeaderValue.NoCacheString))
                 {
                     context.Logger.LogRequestWithNoCacheNotCacheable();
                     return false;
@@ -47,8 +49,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
             else
             {
                 // Support for legacy HTTP 1.0 cache directive
-                var pragmaHeaderValues = request.Headers[HeaderNames.Pragma];
-                if (HeaderUtilities.ContainsCacheDirective(request.Headers[HeaderNames.Pragma], CacheControlHeaderValue.NoCacheString))
+                if (HeaderUtilities.ContainsCacheDirective(requestHeaders.Pragma, CacheControlHeaderValue.NoCacheString))
                 {
                     context.Logger.LogRequestWithPragmaNoCacheNotCacheable();
                     return false;
@@ -61,12 +62,12 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
         public virtual bool AllowCacheStorage(ResponseCachingContext context)
         {
             // Check request no-store
-            return !HeaderUtilities.ContainsCacheDirective(context.HttpContext.Request.Headers[HeaderNames.CacheControl], CacheControlHeaderValue.NoStoreString);
+            return !HeaderUtilities.ContainsCacheDirective(context.HttpContext.Request.Headers.CacheControl, CacheControlHeaderValue.NoStoreString);
         }
 
         public virtual bool IsResponseCacheable(ResponseCachingContext context)
         {
-            var responseCacheControlHeader = context.HttpContext.Response.Headers[HeaderNames.CacheControl];
+            var responseCacheControlHeader = context.HttpContext.Response.Headers.CacheControl;
 
             // Only cache pages explicitly marked with public
             if (!HeaderUtilities.ContainsCacheDirective(responseCacheControlHeader, CacheControlHeaderValue.PublicString))
@@ -92,14 +93,14 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
             var response = context.HttpContext.Response;
 
             // Do not cache responses with Set-Cookie headers
-            if (!StringValues.IsNullOrEmpty(response.Headers[HeaderNames.SetCookie]))
+            if (!StringValues.IsNullOrEmpty(response.Headers.SetCookie))
             {
                 context.Logger.LogResponseWithSetCookieNotCacheable();
                 return false;
             }
 
             // Do not cache responses varying by *
-            var varyHeader = response.Headers[HeaderNames.Vary];
+            var varyHeader = response.Headers.Vary;
             if (varyHeader.Count == 1 && string.Equals(varyHeader, "*", StringComparison.OrdinalIgnoreCase))
             {
                 context.Logger.LogResponseWithVaryStarNotCacheable();
@@ -167,8 +168,8 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
         public virtual bool IsCachedEntryFresh(ResponseCachingContext context)
         {
             var age = context.CachedEntryAge.Value;
-            var cachedCacheControlHeaders = context.CachedResponseHeaders[HeaderNames.CacheControl];
-            var requestCacheControlHeaders = context.HttpContext.Request.Headers[HeaderNames.CacheControl];
+            var cachedCacheControlHeaders = context.CachedResponseHeaders.CacheControl;
+            var requestCacheControlHeaders = context.HttpContext.Request.Headers.CacheControl;
 
             // Add min-fresh requirements
             TimeSpan? minFresh;
@@ -233,7 +234,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
                 {
                     // Validate expiration
                     DateTimeOffset expires;
-                    if (HeaderUtilities.TryParseDate(context.CachedResponseHeaders[HeaderNames.Expires].ToString(), out expires) &&
+                    if (HeaderUtilities.TryParseDate(context.CachedResponseHeaders.Expires.ToString(), out expires) &&
                         context.ResponseTime.Value >= expires)
                     {
                         context.Logger.LogExpirationExpiresExceeded(context.ResponseTime.Value, expires);

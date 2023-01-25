@@ -13,10 +13,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public MemoryResponseCache(IMemoryCache cache)
         {
-            if (cache == null)
-            {
-                throw new ArgumentNullException(nameof(cache));
-            }
+            ArgumentNullException.ThrowIfNull(cache);
 
             _cache = cache;
         }
@@ -25,8 +22,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
         {
             var entry = _cache.Get(key);
 
-            var memoryCachedResponse = entry as MemoryCachedResponse;
-            if (memoryCachedResponse != null)
+            if (entry is MemoryCachedResponse memoryCachedResponse)
             {
                 return new CachedResponse
                 {
@@ -49,8 +45,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public void Set(string key, IResponseCacheEntry entry, TimeSpan validFor)
         {
-            var cachedResponse = entry as CachedResponse;
-            if (cachedResponse != null)
+            if (entry is CachedResponse cachedResponse)
             {
                 var segmentStream = new SegmentWriteStream(StreamUtilities.BodySegmentSize);
                 cachedResponse.Body.CopyTo(segmentStream);
