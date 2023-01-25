@@ -15,8 +15,6 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public IHeaderDictionary Headers { get; set; } = new HeaderDictionary();
 
-        public List<byte[]> BodySegments { get; set; }
-
-        public long BodyLength { get; set; }
+        public CachedResponseBody Body { get; set; }
     }
 }

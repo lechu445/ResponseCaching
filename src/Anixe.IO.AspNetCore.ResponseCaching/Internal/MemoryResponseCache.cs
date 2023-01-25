@@ -29,7 +29,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
                     Created = memoryCachedResponse.Created,
                     StatusCode = memoryCachedResponse.StatusCode,
                     Headers = memoryCachedResponse.Headers,
-                    Body = new SegmentReadStream(memoryCachedResponse.BodySegments, memoryCachedResponse.BodyLength)
+                    Body = memoryCachedResponse.Body
                 };
             }
             else
@@ -47,9 +47,6 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
         {
             if (entry is CachedResponse cachedResponse)
             {
-                var segmentStream = new SegmentWriteStream(StreamUtilities.BodySegmentSize);
-                cachedResponse.Body.CopyTo(segmentStream);
-
                 _cache.Set(
                     key,
                     new MemoryCachedResponse
@@ -57,8 +54,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
                         Created = cachedResponse.Created,
                         StatusCode = cachedResponse.StatusCode,
                         Headers = cachedResponse.Headers,
-                        BodySegments = segmentStream.GetSegments(),
-                        BodyLength = segmentStream.Length
+                        Body = cachedResponse.Body
                     },
                     new MemoryCacheEntryOptions
                     {
