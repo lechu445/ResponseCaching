@@ -140,7 +140,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
         // Check conditional request rules
         if (ContentIsNotModified(context))
         {
-          _logger.LogNotModifiedServed();
+          _logger.NotModifiedServed();
           context.HttpContext.Response.StatusCode = StatusCodes.Status304NotModified;
 
           if (context.CachedResponseHeaders != null)
@@ -182,7 +182,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
               context.HttpContext.Abort();
             }
           }
-          _logger.LogCachedResponseServed();
+          _logger.CachedResponseServed();
         }
         return true;
       }
@@ -218,12 +218,12 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
 
       if (HeaderUtilities.ContainsCacheDirective(context.HttpContext.Request.Headers[HeaderNames.CacheControl], CacheControlHeaderValue.OnlyIfCachedString))
       {
-        _logger.LogGatewayTimeoutServed();
+        _logger.GatewayTimeoutServed();
         context.HttpContext.Response.StatusCode = StatusCodes.Status504GatewayTimeout;
         return true;
       }
 
-      _logger.LogNoResponseServed();
+      _logger.NoResponseServed();
       return false;
     }
 
@@ -276,7 +276,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
           }
 
           // Always overwrite the CachedVaryByRules to update the expiry information
-          _logger.LogVaryByRulesUpdated(normalizedVaryHeaders.ToString(), normalizedVaryQueryKeys.ToString());
+          _logger.VaryByRulesUpdated(normalizedVaryHeaders.ToString(), normalizedVaryQueryKeys.ToString());
           storeVaryByEntry = true;
 
           context.StorageVaryKey = _keyProvider.CreateStorageVaryByKey(context);
@@ -337,12 +337,12 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
           }
 
           context.CachedResponse.Body = cachedResponseBody;
-          _logger.LogResponseCached();
+          _logger.ResponseCached();
           _cache.Set(context.StorageVaryKey ?? context.BaseKey, context.CachedResponse, context.CachedResponseValidFor);
         }
         else
         {
-          _logger.LogResponseContentLengthMismatchNotCached();
+          _logger.ResponseContentLengthMismatchNotCached();
         }
       }
       else
@@ -420,7 +420,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
       {
         if (ifNoneMatchHeader.Count == 1 && StringSegment.Equals(ifNoneMatchHeader[0], EntityTagHeaderValue.Any.Tag, StringComparison.OrdinalIgnoreCase))
         {
-          context.Logger.LogNotModifiedIfNoneMatchStar();
+          context.Logger.NotModifiedIfNoneMatchStar();
           return true;
         }
 
@@ -434,7 +434,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
             var requestETag = ifNoneMatchEtags[i];
             if (eTag.Compare(requestETag, useStrongComparison: false))
             {
-              context.Logger.LogNotModifiedIfNoneMatchMatched(requestETag);
+              context.Logger.NotModifiedIfNoneMatchMatched(requestETag);
               return true;
             }
           }
@@ -456,7 +456,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
           if (HeaderUtilities.TryParseDate(ifModifiedSince.ToString(), out modifiedSince) &&
               modified <= modifiedSince)
           {
-            context.Logger.LogNotModifiedIfModifiedSinceSatisfied(modified, modifiedSince);
+            context.Logger.NotModifiedIfModifiedSinceSatisfied(modified, modifiedSince);
             return true;
           }
         }
