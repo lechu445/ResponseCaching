@@ -19,10 +19,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         internal SegmentReadStream(List<byte[]> segments, long length)
         {
-            if (segments == null)
-            {
-                throw new ArgumentNullException(nameof(segments));
-            }
+            ArgumentNullException.ThrowIfNull(segments);
 
             _segments = segments;
             _length = length;
@@ -63,10 +60,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
             if (offset < 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(offset), offset, "Non-negative number required.");
@@ -174,10 +168,8 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public override int EndRead(IAsyncResult asyncResult)
         {
-            if (asyncResult == null)
-            {
-                throw new ArgumentNullException(nameof(asyncResult));
-            }
+            ArgumentNullException.ThrowIfNull(asyncResult);
+
             return ((Task<int>)asyncResult).GetAwaiter().GetResult();
         }
 
@@ -186,7 +178,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
             // The stream only supports a full rewind. This will need an update if random access becomes a required feature.
             if (origin != SeekOrigin.Begin)
             {
-                throw new ArgumentException(nameof(origin), $"{nameof(Seek)} can only be set to {nameof(SeekOrigin.Begin)}.");
+                throw new ArgumentException($"{nameof(Seek)} can only be set to {nameof(SeekOrigin.Begin)}.", nameof(origin));
             }
             if (offset != 0)
             {
@@ -209,10 +201,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public override async Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
         {
-            if (destination == null)
-            {
-                throw new ArgumentNullException(nameof(destination));
-            }
+            ArgumentNullException.ThrowIfNull(destination);
             if (!destination.CanWrite)
             {
                 throw new NotSupportedException("The destination stream does not support writing.");

@@ -49,14 +49,8 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public override long Position
         {
-            get
-            {
-                return _length;
-            }
-            set
-            {
-                throw new NotSupportedException("The stream does not support seeking.");
-            }
+            get => _length;
+            set => throw new NotSupportedException("The stream does not support seeking.");
         }
 
         private void DisposeMemoryStream()
@@ -128,28 +122,18 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (offset < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset), offset, "Non-negative number required.");
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count), count, "Non-negative number required.");
-            }
-            if (count > buffer.Length - offset)
-            {
-                throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
-            }
+            ValidateBufferArguments(buffer, offset, count);
             if (!CanWrite)
             {
                 throw new ObjectDisposedException("The stream has been closed for writing.");
             }
 
-            while (count > 0)
+            Write(buffer.AsSpan(offset, count));
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            while (!buffer.IsEmpty)
             {
                 if ((int)_bufferStream.Length == _segmentSize)
                 {
@@ -157,11 +141,10 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
                     _bufferStream.SetLength(0);
                 }
 
-                var bytesWritten = Math.Min(count, _segmentSize - (int)_bufferStream.Length);
+                var bytesWritten = Math.Min(buffer.Length, _segmentSize - (int)_bufferStream.Length);
 
-                _bufferStream.Write(buffer, offset, bytesWritten);
-                count -= bytesWritten;
-                offset += bytesWritten;
+                _bufferStream.Write(buffer.Slice(0, bytesWritten));
+                buffer = buffer.Slice(bytesWritten);
                 _length += bytesWritten;
             }
         }
@@ -196,10 +179,8 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public override void EndWrite(IAsyncResult asyncResult)
         {
-            if (asyncResult == null)
-            {
-                throw new ArgumentNullException(nameof(asyncResult));
-            }
+            ArgumentNullException.ThrowIfNull(asyncResult);
+
             ((Task)asyncResult).GetAwaiter().GetResult();
         }
     }

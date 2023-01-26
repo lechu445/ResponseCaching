@@ -13,10 +13,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public MemoryResponseCache(IMemoryCache cache)
         {
-            if (cache == null)
-            {
-                throw new ArgumentNullException(nameof(cache));
-            }
+            ArgumentNullException.ThrowIfNull(cache);
 
             _cache = cache;
         }
@@ -25,15 +22,14 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
         {
             var entry = _cache.Get(key);
 
-            var memoryCachedResponse = entry as MemoryCachedResponse;
-            if (memoryCachedResponse != null)
+            if (entry is MemoryCachedResponse memoryCachedResponse)
             {
                 return new CachedResponse
                 {
                     Created = memoryCachedResponse.Created,
                     StatusCode = memoryCachedResponse.StatusCode,
                     Headers = memoryCachedResponse.Headers,
-                    Body = new SegmentReadStream(memoryCachedResponse.BodySegments, memoryCachedResponse.BodyLength)
+                    Body = memoryCachedResponse.Body
                 };
             }
             else
@@ -49,12 +45,8 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public void Set(string key, IResponseCacheEntry entry, TimeSpan validFor)
         {
-            var cachedResponse = entry as CachedResponse;
-            if (cachedResponse != null)
+            if (entry is CachedResponse cachedResponse)
             {
-                var segmentStream = new SegmentWriteStream(StreamUtilities.BodySegmentSize);
-                cachedResponse.Body.CopyTo(segmentStream);
-
                 _cache.Set(
                     key,
                     new MemoryCachedResponse
@@ -62,8 +54,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
                         Created = cachedResponse.Created,
                         StatusCode = cachedResponse.StatusCode,
                         Headers = cachedResponse.Headers,
-                        BodySegments = segmentStream.GetSegments(),
-                        BodyLength = segmentStream.Length
+                        Body = cachedResponse.Body
                     },
                     new MemoryCacheEntryOptions
                     {

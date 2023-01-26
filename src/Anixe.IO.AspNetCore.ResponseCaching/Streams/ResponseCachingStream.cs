@@ -13,17 +13,15 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
         private readonly Stream _innerStream;
         private readonly long _maxBufferSize;
         private readonly int _segmentSize;
-        private SegmentWriteStream _segmentWriteStream;
-        private Action _startResponseCallback;
-        private Func<Task> _startResponseCallbackAsync;
+        private readonly SegmentWriteStream _segmentWriteStream;
+        private readonly Action _startResponseCallback;
 
-        internal ResponseCachingStream(Stream innerStream, long maxBufferSize, int segmentSize, Action startResponseCallback, Func<Task> startResponseCallbackAsync)
+        internal ResponseCachingStream(Stream innerStream, long maxBufferSize, int segmentSize, Action startResponseCallback)
         {
             _innerStream = innerStream;
             _maxBufferSize = maxBufferSize;
             _segmentSize = segmentSize;
             _startResponseCallback = startResponseCallback;
-            _startResponseCallbackAsync = startResponseCallbackAsync;
             _segmentWriteStream = new SegmentWriteStream(_segmentSize);
         }
 
@@ -47,13 +45,13 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
             }
         }
 
-        internal Stream GetBufferStream()
+        internal CachedResponseBody GetCachedResponseBody()
         {
             if (!BufferingEnabled)
             {
                 throw new InvalidOperationException("Buffer stream cannot be retrieved since buffering is disabled.");
             }
-            return new SegmentReadStream(_segmentWriteStream.GetSegments(), _segmentWriteStream.Length);
+            return new CachedResponseBody(_segmentWriteStream.GetSegments(), _segmentWriteStream.Length);
         }
 
         internal void DisableBuffering()
@@ -92,8 +90,8 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
         {
             try
             {
-                await _startResponseCallbackAsync();
-                await _innerStream.FlushAsync();
+                _startResponseCallback();
+                await _innerStream.FlushAsync(cancellationToken);
             }
             catch
             {
@@ -132,12 +130,15 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
             }
         }
 
-        public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            await WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             try
             {
-                await _startResponseCallbackAsync();
-                await _innerStream.WriteAsync(buffer, offset, count, cancellationToken);
+                _startResponseCallback();
+                await _innerStream.WriteAsync(buffer, cancellationToken);
             }
             catch
             {
@@ -147,13 +148,13 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
             if (BufferingEnabled)
             {
-                if (_segmentWriteStream.Length + count > _maxBufferSize)
+                if (_segmentWriteStream.Length + buffer.Length > _maxBufferSize)
                 {
                     DisableBuffering();
                 }
                 else
                 {
-                    await _segmentWriteStream.WriteAsync(buffer, offset, count, cancellationToken);
+                    await _segmentWriteStream.WriteAsync(buffer, cancellationToken);
                 }
             }
         }
@@ -190,10 +191,8 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 
         public override void EndWrite(IAsyncResult asyncResult)
         {
-            if (asyncResult == null)
-            {
-                throw new ArgumentNullException(nameof(asyncResult));
-            }
+            ArgumentNullException.ThrowIfNull(asyncResult);
+
             ((Task)asyncResult).GetAwaiter().GetResult();
         }
     }

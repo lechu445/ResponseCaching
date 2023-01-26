@@ -21,10 +21,7 @@ namespace Anixe.IO.Extensions.DependencyInjection
         /// <returns></returns>
         public static IServiceCollection AddAnixeResponseCaching(this IServiceCollection services)
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
+            ArgumentNullException.ThrowIfNull(services);
 
             services.TryAdd(ServiceDescriptor.Singleton<IResponseCachingPolicyProvider, ResponseCachingPolicyProvider>());
             services.TryAdd(ServiceDescriptor.Singleton<IResponseCachingKeyProvider, ResponseCachingKeyProvider>());
@@ -40,14 +37,8 @@ namespace Anixe.IO.Extensions.DependencyInjection
         /// <returns></returns>
         public static IServiceCollection AddAnixeResponseCaching(this IServiceCollection services, Action<ResponseCachingOptions> configureOptions)
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
-            if (configureOptions == null)
-            {
-                throw new ArgumentNullException(nameof(configureOptions));
-            }
+            ArgumentNullException.ThrowIfNull(services);
+            ArgumentNullException.ThrowIfNull(configureOptions);
 
             services.Configure(configureOptions);
             services.AddAnixeResponseCaching();

@@ -7,7 +7,6 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
 {
     internal static class CacheEntryHelpers
     {
-
         internal static long EstimateCachedResponseSize(CachedResponse cachedResponse)
         {
             if (cachedResponse == null)

@@ -19,6 +19,10 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
   {
     private static readonly TimeSpan DefaultExpirationTimeSpan = TimeSpan.FromSeconds(10);
 
+    // see https://tools.ietf.org/html/rfc7232#section-4.1
+    private static readonly string[] HeadersToIncludeIn304 =
+        new[] { "Cache-Control", "Content-Location", "Date", "ETag", "Expires", "Vary" };
+
     private readonly RequestDelegate _next;
     private readonly ResponseCachingOptions _options;
     private readonly ILogger _logger;
@@ -52,30 +56,12 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
         IResponseCache cache,
         IResponseCachingKeyProvider keyProvider)
     {
-      if (next == null)
-      {
-        throw new ArgumentNullException(nameof(next));
-      }
-      if (options == null)
-      {
-        throw new ArgumentNullException(nameof(options));
-      }
-      if (loggerFactory == null)
-      {
-        throw new ArgumentNullException(nameof(loggerFactory));
-      }
-      if (policyProvider == null)
-      {
-        throw new ArgumentNullException(nameof(policyProvider));
-      }
-      if (cache == null)
-      {
-        throw new ArgumentNullException(nameof(cache));
-      }
-      if (keyProvider == null)
-      {
-        throw new ArgumentNullException(nameof(keyProvider));
-      }
+      ArgumentNullException.ThrowIfNull(next);
+      ArgumentNullException.ThrowIfNull(options);
+      ArgumentNullException.ThrowIfNull(loggerFactory);
+      ArgumentNullException.ThrowIfNull(policyProvider);
+      ArgumentNullException.ThrowIfNull(cache);
+      ArgumentNullException.ThrowIfNull(keyProvider);
 
       _next = next;
       _options = options.Value;
@@ -109,10 +95,10 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
             await _next(httpContext);
 
             // If there was no response body, check the response headers now. We can cache things like redirects.
-            await StartResponseAsync(context);
+            StartResponse(context);
 
             // Finalize the cache entry
-            await FinalizeCacheBodyAsync(context);
+            FinalizeCacheBody(context);
           }
           finally
           {
@@ -138,8 +124,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
 
     internal async Task<bool> TryServeCachedResponseAsync(ResponseCachingContext context, IResponseCacheEntry cacheEntry)
     {
-      var cachedResponse = cacheEntry as CachedResponse;
-      if (cachedResponse == null)
+      if (cacheEntry is not CachedResponse cachedResponse)
       {
         return false;
       }
@@ -155,8 +140,19 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
         // Check conditional request rules
         if (ContentIsNotModified(context))
         {
-          _logger.LogNotModifiedServed();
+          _logger.NotModifiedServed();
           context.HttpContext.Response.StatusCode = StatusCodes.Status304NotModified;
+
+          if (context.CachedResponseHeaders != null)
+          {
+            foreach (var key in HeadersToIncludeIn304)
+            {
+              if (context.CachedResponseHeaders.TryGetValue(key, out var values))
+              {
+                  context.HttpContext.Response.Headers[key] = values;
+              }
+            }
+          }
         }
         else
         {
@@ -171,7 +167,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
           // Note: int64 division truncates result and errors may be up to 1 second. This reduction in
           // accuracy of age calculation is considered appropriate since it is small compared to clock
           // skews and the "Age" header is an estimate of the real age of cached content.
-          response.Headers[HeaderNames.Age] = HeaderUtilities.FormatNonNegativeInt64(context.CachedEntryAge.Value.Ticks / TimeSpan.TicksPerSecond);
+          response.Headers.Age = HeaderUtilities.FormatNonNegativeInt64(context.CachedEntryAge.Value.Ticks / TimeSpan.TicksPerSecond);
 
           // Copy the cached response body
           var body = context.CachedResponse.Body;
@@ -179,14 +175,14 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
           {
             try
             {
-              await body.CopyToAsync(response.Body, StreamUtilities.BodySegmentSize, context.HttpContext.RequestAborted);
+              await body.CopyToAsync(response.BodyWriter, context.HttpContext.RequestAborted);
             }
             catch (OperationCanceledException)
             {
               context.HttpContext.Abort();
             }
           }
-          _logger.LogCachedResponseServed();
+          _logger.CachedResponseServed();
         }
         return true;
       }
@@ -199,15 +195,14 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
       context.BaseKey = _keyProvider.CreateBaseKey(context);
       var cacheEntry = await _cache.GetAsync(context.BaseKey);
 
-      var cachedVaryByRules = cacheEntry as CachedVaryByRules;
-      if (cachedVaryByRules != null)
+      if (cacheEntry is CachedVaryByRules cachedVaryByRules)
       {
         // Request contains vary rules, recompute key(s) and try again
         context.CachedVaryByRules = cachedVaryByRules;
 
         foreach (var varyKey in _keyProvider.CreateLookupVaryByKeys(context))
         {
-          if (await TryServeCachedResponseAsync(context, await _cache.GetAsync(varyKey)))
+          if (await TryServeCachedResponseAsync(context, _cache.Get(varyKey)))
           {
             return true;
           }
@@ -223,15 +218,14 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
 
       if (HeaderUtilities.ContainsCacheDirective(context.HttpContext.Request.Headers[HeaderNames.CacheControl], CacheControlHeaderValue.OnlyIfCachedString))
       {
-        _logger.LogGatewayTimeoutServed();
+        _logger.GatewayTimeoutServed();
         context.HttpContext.Response.StatusCode = StatusCodes.Status504GatewayTimeout;
         return true;
       }
 
-      _logger.LogNoResponseServed();
+      _logger.NoResponseServed();
       return false;
     }
-
 
     /// <summary>
     /// Finalize cache headers.
@@ -247,7 +241,8 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
 
         // Create the cache entry now
         var response = context.HttpContext.Response;
-        var varyHeaders = new StringValues(response.Headers.GetCommaSeparatedValues(HeaderNames.Vary));
+        var headers = response.Headers;
+        var varyHeaders = new StringValues(headers.GetCommaSeparatedValues(HeaderNames.Vary));
         var varyQueryKeys = new StringValues(context.HttpContext.Features.Get<Microsoft.AspNetCore.ResponseCaching.IResponseCachingFeature>()?.VaryByQueryKeys);
         context.CachedResponseValidFor = context.ResponseSharedMaxAge ??
             context.ResponseMaxAge ??
@@ -281,7 +276,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
           }
 
           // Always overwrite the CachedVaryByRules to update the expiry information
-          _logger.LogVaryByRulesUpdated(normalizedVaryHeaders, normalizedVaryQueryKeys);
+          _logger.VaryByRulesUpdated(normalizedVaryHeaders.ToString(), normalizedVaryQueryKeys.ToString());
           storeVaryByEntry = true;
 
           context.StorageVaryKey = _keyProvider.CreateStorageVaryByKey(context);
@@ -292,7 +287,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
         {
           context.ResponseDate = context.ResponseTime.Value;
           // Setting the date on the raw response headers.
-          context.HttpContext.Response.Headers[HeaderNames.Date] = HeaderUtilities.FormatDate(context.ResponseDate.Value);
+          headers.Date = HeaderUtilities.FormatDate(context.ResponseDate.Value);
         }
 
         // Store the response on the state
@@ -303,7 +298,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
           Headers = new HeaderDictionary()
         };
 
-        foreach (var header in context.HttpContext.Response.Headers)
+        foreach (var header in headers)
         {
           if (!string.Equals(header.Key, HeaderNames.Age, StringComparison.OrdinalIgnoreCase))
           {
@@ -326,37 +321,28 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
       }
     }
 
-    internal Task FinalizeCacheHeadersAsync(ResponseCachingContext context)
-    {
-      if (OnFinalizeCacheHeaders(context))
-      {
-        return _cache.SetAsync(context.BaseKey, context.CachedVaryByRules, context.CachedResponseValidFor);
-      }
-      return Task.CompletedTask;
-    }
-
-    internal async Task FinalizeCacheBodyAsync(ResponseCachingContext context)
+    internal void FinalizeCacheBody(ResponseCachingContext context)
     {
       if (context.ShouldCacheResponse && context.ResponseCachingStream.BufferingEnabled)
       {
         var contentLength = context.HttpContext.Response.ContentLength;
-        var bufferStream = context.ResponseCachingStream.GetBufferStream();
-        if (!contentLength.HasValue || contentLength == bufferStream.Length)
+        var cachedResponseBody = context.ResponseCachingStream.GetCachedResponseBody();
+        if (!contentLength.HasValue || contentLength == cachedResponseBody.Length)
         {
           var response = context.HttpContext.Response;
           // Add a content-length if required
           if (!response.ContentLength.HasValue && StringValues.IsNullOrEmpty(response.Headers[HeaderNames.TransferEncoding]))
           {
-            context.CachedResponse.Headers[HeaderNames.ContentLength] = HeaderUtilities.FormatNonNegativeInt64(bufferStream.Length);
+            context.CachedResponse.Headers[HeaderNames.ContentLength] = HeaderUtilities.FormatNonNegativeInt64(cachedResponseBody.Length);
           }
 
-          context.CachedResponse.Body = bufferStream;
-          _logger.LogResponseCached();
-          await _cache.SetAsync(context.StorageVaryKey ?? context.BaseKey, context.CachedResponse, context.CachedResponseValidFor);
+          context.CachedResponse.Body = cachedResponseBody;
+          _logger.ResponseCached();
+          _cache.Set(context.StorageVaryKey ?? context.BaseKey, context.CachedResponse, context.CachedResponseValidFor);
         }
         else
         {
-          _logger.LogResponseContentLengthMismatchNotCached();
+          _logger.ResponseContentLengthMismatchNotCached();
         }
       }
       else
@@ -366,7 +352,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
     }
 
     /// <summary>
-    /// Mark the response as started and set the response time if no reponse was started yet.
+    /// Mark the response as started and set the response time if no response was started yet.
     /// </summary>
     /// <param name="context"></param>
     /// <returns><c>true</c> if the response was not started before this call; otherwise <c>false</c>.</returns>
@@ -390,15 +376,6 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
       }
     }
 
-    internal Task StartResponseAsync(ResponseCachingContext context)
-    {
-      if (OnStartResponse(context))
-      {
-        return FinalizeCacheHeadersAsync(context);
-      }
-      return Task.CompletedTask;
-    }
-
     internal static void AddResponseCachingFeature(HttpContext context)
     {
       if (context.Features.Get<Microsoft.AspNetCore.ResponseCaching.IResponseCachingFeature>() != null)
@@ -416,18 +393,8 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
           context.OriginalResponseStream,
           _options.MaximumBodySize,
           StreamUtilities.BodySegmentSize,
-          () => StartResponse(context),
-          () => StartResponseAsync(context));
+          () => StartResponse(context));
       context.HttpContext.Response.Body = context.ResponseCachingStream;
-
-      // Shim IHttpSendFileFeature
-#if NETCOREAPP2_1 || NETCOREAPP2_2
-      context.OriginalSendFileFeature = context.HttpContext.Features.Get<IHttpSendFileFeature>();
-      if (context.OriginalSendFileFeature != null)
-      {
-          context.HttpContext.Features.Set<IHttpSendFileFeature>(new SendFileFeatureWrapper(context.OriginalSendFileFeature, context.ResponseCachingStream));
-      }
-#endif
 
       // Add IResponseCachingFeature
       AddResponseCachingFeature(context.HttpContext);
@@ -440,10 +407,6 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
     {
       // Unshim response stream
       context.HttpContext.Response.Body = context.OriginalResponseStream;
-#if NETCOREAPP2_1 || NETCOREAPP2_2
-      // Unshim IHttpSendFileFeature
-      context.HttpContext.Features.Set(context.OriginalSendFileFeature);
-#endif
       // Remove IResponseCachingFeature
       RemoveResponseCachingFeature(context.HttpContext);
     }
@@ -451,28 +414,27 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
     internal static bool ContentIsNotModified(ResponseCachingContext context)
     {
       var cachedResponseHeaders = context.CachedResponseHeaders;
-      var ifNoneMatchHeader = context.HttpContext.Request.Headers[HeaderNames.IfNoneMatch];
+      var ifNoneMatchHeader = context.HttpContext.Request.Headers.IfNoneMatch;
 
       if (!StringValues.IsNullOrEmpty(ifNoneMatchHeader))
       {
         if (ifNoneMatchHeader.Count == 1 && StringSegment.Equals(ifNoneMatchHeader[0], EntityTagHeaderValue.Any.Tag, StringComparison.OrdinalIgnoreCase))
         {
-          context.Logger.LogNotModifiedIfNoneMatchStar();
+          context.Logger.NotModifiedIfNoneMatchStar();
           return true;
         }
 
         EntityTagHeaderValue eTag;
-        IList<EntityTagHeaderValue> ifNoneMatchEtags;
-        if (!StringValues.IsNullOrEmpty(cachedResponseHeaders[HeaderNames.ETag])
-            && EntityTagHeaderValue.TryParse(cachedResponseHeaders[HeaderNames.ETag].ToString(), out eTag)
-            && EntityTagHeaderValue.TryParseList(ifNoneMatchHeader, out ifNoneMatchEtags))
+        if (!StringValues.IsNullOrEmpty(cachedResponseHeaders.ETag)
+            && EntityTagHeaderValue.TryParse(cachedResponseHeaders.ETag.ToString(), out eTag)
+            && EntityTagHeaderValue.TryParseList(ifNoneMatchHeader, out var ifNoneMatchEtags))
         {
           for (var i = 0; i < ifNoneMatchEtags.Count; i++)
           {
             var requestETag = ifNoneMatchEtags[i];
             if (eTag.Compare(requestETag, useStrongComparison: false))
             {
-              context.Logger.LogNotModifiedIfNoneMatchMatched(requestETag);
+              context.Logger.NotModifiedIfNoneMatchMatched(requestETag);
               return true;
             }
           }
@@ -480,12 +442,12 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
       }
       else
       {
-        var ifModifiedSince = context.HttpContext.Request.Headers[HeaderNames.IfModifiedSince];
+        var ifModifiedSince = context.HttpContext.Request.Headers.IfModifiedSince;
         if (!StringValues.IsNullOrEmpty(ifModifiedSince))
         {
           DateTimeOffset modified;
-          if (!HeaderUtilities.TryParseDate(cachedResponseHeaders[HeaderNames.LastModified].ToString(), out modified) &&
-              !HeaderUtilities.TryParseDate(cachedResponseHeaders[HeaderNames.Date].ToString(), out modified))
+          if (!HeaderUtilities.TryParseDate(cachedResponseHeaders.LastModified.ToString(), out modified) &&
+              !HeaderUtilities.TryParseDate(cachedResponseHeaders.Date.ToString(), out modified))
           {
             return false;
           }
@@ -494,7 +456,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching
           if (HeaderUtilities.TryParseDate(ifModifiedSince.ToString(), out modifiedSince) &&
               modified <= modifiedSince)
           {
-            context.Logger.LogNotModifiedIfModifiedSinceSatisfied(modified, modifiedSince);
+            context.Logger.NotModifiedIfModifiedSinceSatisfied(modified, modifiedSince);
             return true;
           }
         }

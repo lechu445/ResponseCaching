@@ -14,23 +14,17 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
     public class ResponseCachingKeyProvider : IResponseCachingKeyProvider
     {
         // Use the record separator for delimiting components of the cache key to avoid possible collisions
-        private static readonly char KeyDelimiter = '\x1e';
+        private const char KeyDelimiter = '\x1e';
         // Use the unit separator for delimiting subcomponents of the cache key to avoid possible collisions
-        private static readonly char KeySubDelimiter = '\x1f';
+        private const char KeySubDelimiter = '\x1f';
 
         private readonly ObjectPool<StringBuilder> _builderPool;
         private readonly ResponseCachingOptions _options;
 
         public ResponseCachingKeyProvider(ObjectPoolProvider poolProvider, IOptions<ResponseCachingOptions> options)
         {
-            if (poolProvider == null)
-            {
-                throw new ArgumentNullException(nameof(poolProvider));
-            }
-            if (options == null)
-            {
-                throw new ArgumentNullException(nameof(options));
-            }
+            ArgumentNullException.ThrowIfNull(poolProvider);
+            ArgumentNullException.ThrowIfNull(options);
 
             _builderPool = poolProvider.CreateStringBuilderPool();
             _options = options.Value;
@@ -44,10 +38,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
         // GET<delimiter>SCHEME<delimiter>HOST:PORT/PATHBASE/PATH
         public string CreateBaseKey(ResponseCachingContext context)
         {
-            if (context == null)
-            {
-                throw new ArgumentNullException(nameof(context));
-            }
+            ArgumentNullException.ThrowIfNull(context);
 
             var request = context.HttpContext.Request;
             var builder = _builderPool.Get();
@@ -85,10 +76,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
         // BaseKey<delimiter>H<delimiter>HeaderName=HeaderValue<delimiter>Q<delimiter>QueryName=QueryValue1<subdelimiter>QueryValue2
         public string CreateStorageVaryByKey(ResponseCachingContext context)
         {
-            if (context == null)
-            {
-                throw new ArgumentNullException(nameof(context));
-            }
+            ArgumentNullException.ThrowIfNull(context);
 
             var varyByRules = context.CachedVaryByRules;
             if (varyByRules == null)
@@ -96,12 +84,11 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
                 throw new InvalidOperationException($"{nameof(CachedVaryByRules)} must not be null on the {nameof(ResponseCachingContext)}");
             }
 
-            if ((StringValues.IsNullOrEmpty(varyByRules.Headers) && StringValues.IsNullOrEmpty(varyByRules.QueryKeys)))
+            if (StringValues.IsNullOrEmpty(varyByRules.Headers) && StringValues.IsNullOrEmpty(varyByRules.QueryKeys))
             {
                 return varyByRules.VaryByKeyPrefix;
             }
 
-            var request = context.HttpContext.Request;
             var builder = _builderPool.Get();
 
             try
@@ -110,19 +97,21 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
                 builder.Append(varyByRules.VaryByKeyPrefix);
 
                 // Vary by headers
-                if (varyByRules?.Headers.Count > 0)
+                var headersCount = varyByRules?.Headers.Count ?? 0;
+                if (headersCount > 0)
                 {
                     // Append a group separator for the header segment of the cache key
                     builder.Append(KeyDelimiter)
                         .Append('H');
 
+                    var requestHeaders = context.HttpContext.Request.Headers;
                     for (var i = 0; i < varyByRules.Headers.Count; i++)
                     {
-                        var header = varyByRules.Headers[i];
-                        var headerValues = context.HttpContext.Request.Headers[header];
+                        var header = varyByRules.Headers[i] ?? string.Empty;
+                        var headerValues = requestHeaders[header];
                         builder.Append(KeyDelimiter)
                             .Append(header)
-                            .Append("=");
+                            .Append('=');
 
                         var headerValuesArray = headerValues.ToArray();
                         Array.Sort(headerValuesArray, StringComparer.Ordinal);
@@ -152,7 +141,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
                         {
                             builder.Append(KeyDelimiter)
                                 .AppendUpperInvariant(queryArray[i].Key)
-                                .Append("=");
+                                .Append('=');
 
                             var queryValueArray = queryArray[i].Value.ToArray();
                             Array.Sort(queryValueArray, StringComparer.Ordinal);
@@ -176,7 +165,7 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
                             var queryKeyValues = context.HttpContext.Request.Query[queryKey];
                             builder.Append(KeyDelimiter)
                                 .Append(queryKey)
-                                .Append("=");
+                                .Append('=');
 
                             var queryValueArray = queryKeyValues.ToArray();
                             Array.Sort(queryValueArray, StringComparer.Ordinal);
@@ -202,9 +191,9 @@ namespace Anixe.IO.AspNetCore.ResponseCaching.Internal
             }
         }
 
-        private class QueryKeyComparer : IComparer<KeyValuePair<string, StringValues>>
+        private sealed class QueryKeyComparer : IComparer<KeyValuePair<string, StringValues>>
         {
-            private StringComparer _stringComparer;
+            private readonly StringComparer _stringComparer;
 
             public static QueryKeyComparer OrdinalIgnoreCase { get; } = new QueryKeyComparer(StringComparer.OrdinalIgnoreCase);
 
